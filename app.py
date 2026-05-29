@@ -130,3 +130,67 @@ def run_cycle_start() -> None:
             log.exception("failed to post unmatched alert to admin channel")
 
     log.info("cycle %s complete: %d pairs, %d unmatched", cycle_id, len(pairs), len(unmatched_ids))
+
+
+# ── Scheduled jobs ───────────────────────────────────────────────────────────
+
+def send_nudges() -> None:
+    """DM employees whose match is still pending after 48 hours."""
+    pending = db.get_pending_matches_older_than(48)
+    for match in pending:
+        for sender_id, partner_name in [
+            (match["employee_a_id"], match["employee_b_name"]),
+            (match["employee_b_id"], match["employee_a_name"]),
+        ]:
+            try:
+                app.client.chat_postMessage(
+                    channel=sender_id,
+                    blocks=ui.nudge_dm(partner_name, match["id"], CALENDLY_LINK),
+                    text=f"Hey — just a quick nudge 👋 You and {partner_name} haven't scheduled yet.",
+                )
+            except Exception:
+                log.exception("failed to send nudge to %s", sender_id)
+        db.update_match_status(match["id"], "nudged")
+    if pending:
+        log.info("nudges sent: %d", len(pending))
+
+
+def send_end_of_cycle_reminders() -> None:
+    """DM non-completed pairs 3 days before their cycle ends."""
+    matches = db.get_active_matches_near_cycle_end(days_threshold=3)
+    for match in matches:
+        days_left = match.get("days_left", 3)
+        for sender_id, partner_name in [
+            (match["employee_a_id"], match["employee_b_name"]),
+            (match["employee_b_id"], match["employee_a_name"]),
+        ]:
+            try:
+                app.client.chat_postMessage(
+                    channel=sender_id,
+                    blocks=ui.end_of_cycle_reminder_dm(
+                        partner_name, days_left, CALENDLY_LINK, match["id"]
+                    ),
+                    text=f"Last call ☕ CrowdBrew round closes in {days_left} days.",
+                )
+            except Exception:
+                log.exception("failed to send end-of-cycle reminder to %s", sender_id)
+    if matches:
+        log.info("end-of-cycle reminders sent: %d", len(matches))
+
+
+def post_cycle_summary() -> None:
+    """Mark stragglers as ghosted and post cycle stats to the admin channel."""
+    cycle = db.get_current_cycle()
+    if not cycle:
+        log.warning("post_cycle_summary: no active cycle found")
+        return
+    db.ghost_unresolved_matches(cycle["id"])
+    stats = db.get_cycle_stats(cycle["id"])
+    try:
+        app.client.chat_postMessage(
+            channel=ADMIN_CHANNEL_ID,
+            blocks=ui.cycle_summary_block(stats),
+            text="📊 CrowdBrew — Cycle wrap-up",
+        )
+    except Exception:
+        log.exception("failed to post cycle summary")
