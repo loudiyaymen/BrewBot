@@ -28,3 +28,55 @@ CYCLE_DURATION_DAYS = int(os.getenv("CYCLE_DURATION_DAYS", "14"))
 CYCLE_START_CRON = os.getenv("CYCLE_START_CRON", "0 9 * * MON")
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
+
+
+# ── /crowdbrew — opt-in flow ─────────────────────────────────────────────────
+
+@app.command("/crowdbrew")
+def handle_crowdbrew(ack, command, client):
+    """Open the opt-in modal when an employee runs /crowdbrew."""
+    ack()
+    client.views_open(
+        trigger_id=command["trigger_id"],
+        view=ui.opt_in_modal(),
+    )
+
+
+@app.view("opt_in_modal")
+def handle_opt_in_submit(ack, view, client, body):
+    """Persist the opt-in form submission and send a confirmation DM."""
+    ack()
+    user_id = body["user"]["id"]
+    values = view["state"]["values"]
+
+    tenure_map = {"lt6": 3, "6to18": 12, "gt18": 24}
+    data = {
+        "id": user_id,
+        "name": values["block_name"]["input_name"]["value"],
+        "department": values["block_department"]["input_department"]["value"],
+        "manager": values["block_manager"]["input_manager"]["value"],
+        "region": values["block_region"]["input_region"]["selected_option"]["value"],
+        "job_level": values["block_level"]["input_level"]["selected_option"]["value"],
+        "tenure_months": tenure_map[values["block_tenure"]["input_tenure"]["selected_option"]["value"]],
+        "goals": (values["block_goals"]["input_goals"].get("value") or ""),
+        "interests": (values["block_interests"]["input_interests"].get("value") or ""),
+        "opted_in": 1,
+        "opt_in_date": datetime.utcnow().isoformat(),
+        "program": "open",
+    }
+
+    db.upsert_employee(data)
+    log.info("opt-in: %s (%s)", data["name"], user_id)
+
+    try:
+        client.chat_postMessage(
+            channel=user_id,
+            text=(
+                f"Hey {data['name']} 👋\n\n"
+                "You're in for CrowdBrew! We'll match you with someone from a different team "
+                "and send you an intro when the next round kicks off.\n\n"
+                "Keep an eye on your DMs."
+            ),
+        )
+    except Exception:
+        log.exception("failed to send opt-in DM to %s", user_id)
