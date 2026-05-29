@@ -194,3 +194,72 @@ def post_cycle_summary() -> None:
         )
     except Exception:
         log.exception("failed to post cycle summary")
+
+
+# ── Actions & view handlers ──────────────────────────────────────────────────
+
+@app.action("confirm_met")
+def handle_confirm_met(ack, action, client, body):
+    """Mark match completed and open feedback modal."""
+    ack()
+    match_id = action["value"]
+    db.update_match_status(match_id, "completed")
+    try:
+        client.views_open(
+            trigger_id=body["trigger_id"],
+            view=ui.completion_feedback_modal(match_id),
+        )
+    except Exception:
+        log.exception("failed to open feedback modal for match %s", match_id)
+
+
+@app.view("completion_feedback_modal")
+def handle_feedback_submit(ack, view, client, body):
+    """Persist feedback and send reward placeholder DM."""
+    ack()
+    user_id = body["user"]["id"]
+    match_id = view["private_metadata"]
+    values = view["state"]["values"]
+
+    rating = int(values["block_rating"]["input_rating"]["selected_option"]["value"])
+    feedback = values["block_feedback"]["input_feedback"].get("value") or ""
+
+    db.upsert_completion(match_id, confirmed_by=user_id, rating=rating, feedback=feedback)
+    log.info("feedback submitted for match %s by %s", match_id, user_id)
+
+    try:
+        partner_name = db.get_partner_name(match_id, user_id)
+        client.chat_postMessage(
+            channel=user_id,
+            blocks=ui.reward_placeholder_dm(partner_name),
+            text="Love it — glad you connected! 🎉",
+        )
+    except Exception:
+        log.exception("failed to send reward DM to %s", user_id)
+
+
+# ── /brewstatus — admin command ──────────────────────────────────────────────
+
+@app.command("/brewstatus")
+def handle_brewstatus(ack, command, client):
+    """Post current cycle stats ephemerally to the caller."""
+    ack()
+    caller = command["user_id"]
+    cycle = db.get_current_cycle()
+    if not cycle:
+        client.chat_postEphemeral(
+            channel=command["channel_id"],
+            user=caller,
+            text="No active cycle.",
+        )
+        return
+    stats = db.get_cycle_stats(cycle["id"])
+    try:
+        client.chat_postEphemeral(
+            channel=command["channel_id"],
+            user=caller,
+            blocks=ui.brewstatus_block(stats),
+            text="CrowdBrew — Current Cycle Status",
+        )
+    except Exception:
+        log.exception("failed to post brewstatus to %s", caller)
