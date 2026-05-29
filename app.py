@@ -80,3 +80,53 @@ def handle_opt_in_submit(ack, view, client, body):
         )
     except Exception:
         log.exception("failed to send opt-in DM to %s", user_id)
+
+
+# ── Matching cycle ───────────────────────────────────────────────────────────
+
+def send_match_intros(pairs: list[tuple], employees_by_id: dict, cycle_id: str) -> None:
+    """Write each pair to DB and DM both employees their intro message."""
+    for employee_a, employee_b in pairs:
+        match_id = db.create_match(employee_a["id"], employee_b["id"], cycle_id)
+        for sender, partner in [(employee_a, employee_b), (employee_b, employee_a)]:
+            try:
+                app.client.chat_postMessage(
+                    channel=sender["id"],
+                    blocks=ui.match_intro_dm(partner, CALENDLY_LINK, match_id),
+                    text=f"☕ You've been matched with {partner['name']} for CrowdBrew!",
+                )
+            except Exception:
+                log.exception("failed to send intro DM to %s", sender["id"])
+
+
+def run_cycle_start() -> None:
+    """Run the matching cycle: pair employees, send intros, alert admin of unmatched."""
+    log.info("matching cycle starting")
+    start_date = datetime.utcnow().isoformat()
+    end_date = (datetime.utcnow() + timedelta(days=CYCLE_DURATION_DAYS)).isoformat()
+    cycle_id = db.create_cycle("open", start_date, end_date)
+
+    opted_in = db.get_opted_in_employees()
+    if len(opted_in) < 2:
+        log.warning("not enough opted-in employees to match (%d)", len(opted_in))
+        return
+
+    match_history = db.get_match_history()
+    pairs, unmatched_ids = matching.run_matching_cycle(opted_in, match_history)
+
+    employees_by_id = {e["id"]: e for e in opted_in}
+    send_match_intros(pairs, employees_by_id, cycle_id)
+    db.update_cycle_totals(cycle_id, total_opted_in=len(opted_in), total_matched=len(pairs) * 2)
+
+    if unmatched_ids:
+        names = [employees_by_id.get(uid, {}).get("name", uid) for uid in unmatched_ids]
+        try:
+            app.client.chat_postMessage(
+                channel=ADMIN_CHANNEL_ID,
+                blocks=ui.unmatched_alert_block(names),
+                text=f"⚠️ {len(names)} employee(s) couldn't be matched this round.",
+            )
+        except Exception:
+            log.exception("failed to post unmatched alert to admin channel")
+
+    log.info("cycle %s complete: %d pairs, %d unmatched", cycle_id, len(pairs), len(unmatched_ids))
