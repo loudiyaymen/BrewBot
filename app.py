@@ -263,3 +263,65 @@ def handle_brewstatus(ack, command, client):
         )
     except Exception:
         log.exception("failed to post brewstatus to %s", caller)
+
+
+# ── Scheduler ────────────────────────────────────────────────────────────────
+
+def start_scheduler() -> BackgroundScheduler:
+    """Configure and start APScheduler with all four recurring jobs."""
+    scheduler = BackgroundScheduler()
+
+    # Standard 5-field cron: "minute hour dom month dow"
+    cron_parts = CYCLE_START_CRON.split()
+    scheduler.add_job(
+        run_cycle_start,
+        CronTrigger(
+            minute=cron_parts[0],
+            hour=cron_parts[1],
+            day=cron_parts[2],
+            month=cron_parts[3],
+            day_of_week=cron_parts[4],
+        ),
+        id="run_cycle_start",
+        replace_existing=True,
+    )
+
+    nudge_hours = int(os.getenv("NUDGE_INTERVAL_HOURS", "24"))
+    scheduler.add_job(
+        send_nudges,
+        "interval",
+        hours=nudge_hours,
+        id="send_nudges",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        send_end_of_cycle_reminders,
+        "interval",
+        hours=24,
+        id="send_end_of_cycle_reminders",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        post_cycle_summary,
+        "interval",
+        hours=24,
+        id="post_cycle_summary",
+        replace_existing=True,
+    )
+
+    scheduler.start()
+    log.info("scheduler started with %d jobs", len(scheduler.get_jobs()))
+    return scheduler
+
+
+# ── Entry point ──────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    db.init_db()
+    log.info("database initialized at %s", db.DB_PATH)
+    start_scheduler()
+    handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
+    log.info("starting BrewBot")
+    handler.start()
