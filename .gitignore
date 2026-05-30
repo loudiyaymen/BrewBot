@@ -1,6 +1,5 @@
-# Claude-specific instructions
-CLAUDE.md
-TASKS.md
+# Internal docs (architecture, copy guide, Claude instructions)
+docs/
 
 # Secrets
 .env
