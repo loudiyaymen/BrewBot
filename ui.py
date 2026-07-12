@@ -30,6 +30,48 @@ def opt_in_modal() -> dict:
             {"type": "divider"},
             {
                 "type": "input",
+                "block_id": "block_mode",
+                "label": {"type": "plain_text", "text": "How would you like to participate?"},
+                "element": {
+                    "type": "radio_buttons",
+                    "action_id": "input_mode",
+                    "initial_option": {
+                        "text": {"type": "plain_text", "text": "☕ Match me with someone new"},
+                        "value": "matched",
+                    },
+                    "options": [
+                        {
+                            "text": {"type": "plain_text", "text": "☕ Match me with someone new"},
+                            "description": {"type": "plain_text", "text": "I'll be paired based on my goals and interests"},
+                            "value": "matched",
+                        },
+                        {
+                            "text": {"type": "plain_text", "text": "👋 I already have someone in mind"},
+                            "description": {"type": "plain_text", "text": "I'll choose them and we'll both be confirmed"},
+                            "value": "self_select",
+                        },
+                        {
+                            "text": {"type": "plain_text", "text": "👥 Put me in a group chat (3–4 people)"},
+                            "description": {"type": "plain_text", "text": "Great for meeting multiple people at once"},
+                            "value": "group",
+                        },
+                    ],
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "block_partner",
+                "optional": True,
+                "label": {"type": "plain_text", "text": "Who would you like to meet with?"},
+                "hint": {"type": "plain_text", "text": "Only used if you picked 'someone in mind' above."},
+                "element": {
+                    "type": "users_select",
+                    "action_id": "input_partner",
+                    "placeholder": {"type": "plain_text", "text": "Search for a CrowdStriker…"},
+                },
+            },
+            {
+                "type": "input",
                 "block_id": "block_name",
                 "label": {"type": "plain_text", "text": "Your name"},
                 "element": {
@@ -107,37 +149,138 @@ def opt_in_modal() -> dict:
             },
             {
                 "type": "input",
-                "block_id": "block_goals",
-                "label": {"type": "plain_text", "text": "What are you hoping to get from CrowdBrew? (optional)"},
-                "optional": True,
+                "block_id": "block_connection_type",
+                "label": {"type": "plain_text", "text": "What kind of connection are you looking for?"},
                 "element": {
-                    "type": "plain_text_input",
+                    "type": "static_select",
+                    "action_id": "input_connection_type",
+                    "placeholder": {"type": "plain_text", "text": "Pick one"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Peer chat — someone at a similar level"}, "value": "peer"},
+                        {"text": {"type": "plain_text", "text": "I want to learn — connect me with someone more experienced"}, "value": "mentee"},
+                        {"text": {"type": "plain_text", "text": "I want to share — connect me with someone earlier in their career"}, "value": "mentor"},
+                        {"text": {"type": "plain_text", "text": "Either works for me"}, "value": "open"},
+                    ],
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "block_goals",
+                "optional": True,
+                "label": {"type": "plain_text", "text": "What are you hoping to get from this chat?"},
+                "element": {
+                    "type": "checkboxes",
                     "action_id": "input_goals",
-                    "multiline": True,
-                    "placeholder": {"type": "plain_text", "text": "e.g. Learn about product, find a mentor"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Learn about a different part of the business"}, "value": "cross_functional"},
+                        {"text": {"type": "plain_text", "text": "Find a mentor or advisor"}, "value": "find_mentor"},
+                        {"text": {"type": "plain_text", "text": "Share my experience with someone newer"}, "value": "be_mentor"},
+                        {"text": {"type": "plain_text", "text": "Explore a career pivot or new direction"}, "value": "career_pivot"},
+                        {"text": {"type": "plain_text", "text": "Get advice on a specific challenge"}, "value": "get_advice"},
+                        {"text": {"type": "plain_text", "text": "Collaborate on something"}, "value": "collaborate"},
+                        {"text": {"type": "plain_text", "text": "Just meet someone new"}, "value": "networking"},
+                    ],
                 },
             },
             {
                 "type": "input",
                 "block_id": "block_interests",
-                "label": {"type": "plain_text", "text": "Interests outside of work (optional)"},
                 "optional": True,
+                "label": {"type": "plain_text", "text": "What topics would you love to talk about?"},
+                "element": {
+                    "type": "checkboxes",
+                    "action_id": "input_interests",
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Career growth and development"}, "value": "career"},
+                        {"text": {"type": "plain_text", "text": "Leadership and management"}, "value": "leadership"},
+                        {"text": {"type": "plain_text", "text": "Technical skills and engineering"}, "value": "technical"},
+                        {"text": {"type": "plain_text", "text": "Product and strategy"}, "value": "product"},
+                        {"text": {"type": "plain_text", "text": "Sales and customer success"}, "value": "sales"},
+                        {"text": {"type": "plain_text", "text": "Culture and belonging"}, "value": "culture"},
+                        {"text": {"type": "plain_text", "text": "Work-life balance and wellbeing"}, "value": "wellbeing"},
+                        {"text": {"type": "plain_text", "text": "Innovation and new ideas"}, "value": "innovation"},
+                    ],
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "block_frequency",
+                "label": {"type": "plain_text", "text": "How often would you like to be matched?"},
+                "element": {
+                    "type": "static_select",
+                    "action_id": "input_frequency",
+                    "initial_option": {"text": {"type": "plain_text", "text": "Every 2 weeks"}, "value": "biweekly"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Every 2 weeks"}, "value": "biweekly"},
+                        {"text": {"type": "plain_text", "text": "Once a month"}, "value": "monthly"},
+                        {"text": {"type": "plain_text", "text": "Just this once"}, "value": "once"},
+                        {"text": {"type": "plain_text", "text": "Surprise me"}, "value": "random"},
+                    ],
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "block_meeting_pref",
+                "label": {"type": "plain_text", "text": "How would you prefer to meet?"},
+                "element": {
+                    "type": "static_select",
+                    "action_id": "input_meeting_pref",
+                    "initial_option": {"text": {"type": "plain_text", "text": "Either works"}, "value": "either"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Virtual only"}, "value": "virtual"},
+                        {"text": {"type": "plain_text", "text": "In-person if possible"}, "value": "inperson"},
+                        {"text": {"type": "plain_text", "text": "Either works"}, "value": "either"},
+                    ],
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "block_location",
+                "optional": True,
+                "label": {"type": "plain_text", "text": "Your city / office (for in-person)"},
                 "element": {
                     "type": "plain_text_input",
-                    "action_id": "input_interests",
-                    "multiline": True,
-                    "placeholder": {"type": "plain_text", "text": "e.g. hiking, sci-fi, side projects"},
+                    "action_id": "input_location",
+                    "placeholder": {"type": "plain_text", "text": "e.g. Austin, Sunnyvale, London"},
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "block_program",
+                "label": {"type": "plain_text", "text": "Which program are you joining through?"},
+                "element": {
+                    "type": "static_select",
+                    "action_id": "input_program",
+                    "initial_option": {"text": {"type": "plain_text", "text": "Open / Anyone"}, "value": "open"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Falcon Ignite"}, "value": "falcon_ignite"},
+                        {"text": {"type": "plain_text", "text": "XLR8 / Accelerate"}, "value": "xlr8"},
+                        {"text": {"type": "plain_text", "text": "M&A Onboarding"}, "value": "ma_pilot"},
+                        {"text": {"type": "plain_text", "text": "Open / Anyone"}, "value": "open"},
+                    ],
                 },
             },
         ],
     }
 
 
-def match_intro_dm(partner: dict, calendly_link: str, match_id: str) -> list[dict]:
+def _score_bar(match_score: float) -> str:
+    """Render a 0–10 score as a 10-cell █/░ bar with a percentage."""
+    filled = max(0, min(10, round(match_score)))
+    return "█" * filled + "░" * (10 - filled) + f"  {int(match_score * 10)}%"
+
+
+def match_intro_dm(
+    partner: dict,
+    calendly_link: str,
+    match_id: str,
+    match_reason: str = "",
+    match_score: float = 0.0,
+) -> list[dict]:
     """Blocks for the match introduction DM sent to both employees."""
     icebreakers = random.sample(ICEBREAKERS, min(3, len(ICEBREAKERS)))
-    goals_snippet = (partner.get("goals") or "").strip()
-    goals_text = f"> {goals_snippet}" if goals_snippet else "_No goals shared — ask them directly!_"
+    reason_text = f"\n\n_{match_reason}_" if match_reason else ""
+    score_line = f"\n\n*Match strength:* {_score_bar(match_score)}" if match_score else ""
 
     return [
         {
@@ -146,8 +289,9 @@ def match_intro_dm(partner: dict, calendly_link: str, match_id: str) -> list[dic
                 "type": "mrkdwn",
                 "text": (
                     f"☕ *Your CrowdBrew match is here!*\n\n"
-                    f"You've been paired with *{partner['name']}* ({partner['department']}).\n\n"
-                    f"A bit about them:\n{goals_text}"
+                    f"You've been paired with *{partner['name']}* ({partner['department']})."
+                    f"{reason_text}"
+                    f"{score_line}"
                 ),
             },
         },
@@ -186,6 +330,147 @@ def match_intro_dm(partner: dict, calendly_link: str, match_id: str) -> list[dic
             },
         },
     ]
+
+
+def group_intro_dm(members: list[dict], calendly_link: str, group_id: str) -> list[dict]:
+    """Blocks for the group-chat introduction DM sent to each group member."""
+    names = ", ".join(f"*{m['name']}* ({m['department']})" for m in members)
+    icebreakers = random.sample(ICEBREAKERS, min(3, len(ICEBREAKERS)))
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"👥 *Your CrowdBrew group is here!*\n\n"
+                    f"You've been grouped with {names}.\n\n"
+                    f"Start a group DM and find a time that works for everyone."
+                ),
+            },
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "Grab 20–30 minutes together whenever works:"},
+            "accessory": {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "📅 Schedule with Calendly →"},
+                "url": calendly_link,
+                "action_id": "open_calendly",
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Some conversation starters if you want them:\n"
+                + "\n".join(f"• {q}" for q in icebreakers),
+            },
+        },
+    ]
+
+
+def round_optin_dm() -> list[dict]:
+    """Blocks for the per-round opt-in prompt sent at the start of each cycle."""
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "☕ *A new CrowdBrew round is starting!*\n\nAre you in for this round?",
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "✅ Yes, match me!"},
+                    "action_id": "round_optin_yes",
+                    "style": "primary",
+                    "value": "yes",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "⏸ Skip this round"},
+                    "action_id": "round_optin_skip",
+                    "value": "skip",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "❌ Opt out"},
+                    "action_id": "round_optin_out",
+                    "value": "out",
+                },
+            ],
+        },
+    ]
+
+
+def followup_dm(partner_name: str, completion_id: str) -> list[dict]:
+    """Blocks for the follow-up check-in DM sent a week after a chat is confirmed."""
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"👋 Hey! Just checking in on your CrowdBrew with *{partner_name}*.\n\n"
+                    f"Did the chat deliver what you were looking for?"
+                ),
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "✅ Yes!"},
+                    "action_id": "followup_yes",
+                    "style": "primary",
+                    "value": completion_id,
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "🤔 Partially"},
+                    "action_id": "followup_partial",
+                    "value": completion_id,
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "❌ Not really"},
+                    "action_id": "followup_no",
+                    "value": completion_id,
+                },
+            ],
+        },
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "Want to connect with them again sometime?"},
+            "accessory": {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "👍 Yes"},
+                "action_id": "followup_reconnect",
+                "value": completion_id,
+            },
+        },
+    ]
+
+
+def opt_in_confirmation_text(name: str, unique_matches: int = 0) -> str:
+    """Text for the post-opt-in confirmation DM, surfacing never-repeat match history."""
+    text = (
+        f"Hey {name} 👋\n\n"
+        "You're in for CrowdBrew! We'll match you with someone from a different team "
+        "and send you an intro when the next round kicks off.\n\n"
+        "Keep an eye on your DMs."
+    )
+    if unique_matches > 0:
+        text += (
+            f"\n\nYou've connected with *{unique_matches} different CrowdStrikers* so far 🎉 "
+            "Your next match will be someone completely new."
+        )
+    return text
 
 
 def nudge_dm(partner_name: str, match_id: str, calendly_link: str) -> list[dict]:
