@@ -1,5 +1,7 @@
 """SQLite adapter and query helpers for BrewBot."""
 
+import csv
+import io
 import json
 import os
 import sqlite3
@@ -620,3 +622,152 @@ def get_cycle_stats(cycle_id: str) -> dict:
             "total_nudged": counts["total_nudged"] or 0,
             "avg_rating": round(avg_rating, 1) if avg_rating else None,
         }
+
+
+# ── CSV export ───────────────────────────────────────────────────────────────
+
+# Column order for the matches report: identity, whether/when they met, the
+# post-chat feedback (stars + text), and the 7-day follow-up responses.
+EXPORT_COLUMNS: list[str] = [
+    "match_id",
+    "cycle_start",
+    "match_type",
+    "group_id",
+    "partner_a",
+    "dept_a",
+    "employee_a_id",
+    "partner_b",
+    "dept_b",
+    "employee_b_id",
+    "matched_date",
+    "status",
+    "took_place",
+    "completed_date",
+    "match_score",
+    "match_reason",
+    "rating_a",
+    "feedback_a",
+    "rating_b",
+    "feedback_b",
+    "followup_response_a",
+    "want_to_reconnect_a",
+    "followup_response_b",
+    "want_to_reconnect_b",
+]
+
+# Column order for the participants report: one row per employee with their profile.
+EMPLOYEE_EXPORT_COLUMNS: list[str] = [
+    "id",
+    "name",
+    "email",
+    "department",
+    "manager",
+    "region",
+    "timezone",
+    "job_level",
+    "tenure_months",
+    "program",
+    "mode",
+    "connection_type",
+    "match_frequency",
+    "meeting_preference",
+    "location",
+    "goals",
+    "interests",
+    "opted_in",
+    "round_optin",
+    "paused_until",
+    "opt_in_date",
+    "unique_matches",
+    "created_at",
+]
+
+
+def export_matches(cycle_id: str | None = None) -> list[dict]:
+    """Return match + feedback + follow-up rows for CSV export, newest first.
+
+    Left-joins completions so pending/ghosted matches are still included. If
+    `cycle_id` is given, only that cycle's matches are returned; otherwise all.
+    """
+    where = "WHERE m.cycle_id = ?" if cycle_id else ""
+    params = (cycle_id,) if cycle_id else ()
+    with get_db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT
+                m.id                                           AS match_id,
+                c.start_date                                   AS cycle_start,
+                m.match_type                                   AS match_type,
+                m.group_id                                     AS group_id,
+                ea.name                                        AS partner_a,
+                ea.department                                  AS dept_a,
+                m.employee_a_id                                AS employee_a_id,
+                eb.name                                        AS partner_b,
+                eb.department                                  AS dept_b,
+                m.employee_b_id                                AS employee_b_id,
+                m.matched_date                                 AS matched_date,
+                m.status                                       AS status,
+                CASE WHEN m.status = 'completed' THEN 'yes' ELSE 'no' END AS took_place,
+                comp.completed_date                            AS completed_date,
+                m.match_score                                  AS match_score,
+                m.match_reason                                 AS match_reason,
+                comp.rating_a                                  AS rating_a,
+                comp.feedback_a                                AS feedback_a,
+                comp.rating_b                                  AS rating_b,
+                comp.feedback_b                                AS feedback_b,
+                comp.followup_response_a                       AS followup_response_a,
+                comp.want_to_reconnect_a                       AS want_to_reconnect_a,
+                comp.followup_response_b                       AS followup_response_b,
+                comp.want_to_reconnect_b                       AS want_to_reconnect_b
+            FROM matches m
+            JOIN employees ea ON m.employee_a_id = ea.id
+            JOIN employees eb ON m.employee_b_id = eb.id
+            LEFT JOIN cycles c ON m.cycle_id = c.id
+            LEFT JOIN completions comp ON comp.match_id = m.id
+            {where}
+            ORDER BY m.matched_date DESC
+            """,
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def export_employees() -> list[dict]:
+    """Return one row per employee with full profile + their unique match count."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM employees ORDER BY opt_in_date").fetchall()
+        out = []
+        for r in rows:
+            emp = dict(r)
+            # Prefer the structured checkbox lists; fall back to the free-text columns.
+            goals = _json_list(emp.get("goals_list")) or (
+                [emp["goals"]] if emp.get("goals") else []
+            )
+            interests = _json_list(emp.get("interests_list")) or (
+                [emp["interests"]] if emp.get("interests") else []
+            )
+            emp["goals"] = "; ".join(goals)
+            emp["interests"] = "; ".join(interests)
+            emp["unique_matches"] = get_unique_match_count(emp["id"])
+            out.append(emp)
+        return out
+
+
+def _rows_to_csv(rows: list[dict], columns: list[str]) -> str:
+    """Render rows into a CSV string with a fixed header order."""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({col: row.get(col, "") for col in columns})
+    return buf.getvalue()
+
+
+def matches_to_csv(rows: list[dict]) -> str:
+    """Render match export rows into a CSV string."""
+    return _rows_to_csv(rows, EXPORT_COLUMNS)
+
+
+def employees_to_csv(rows: list[dict]) -> str:
+    """Render participant export rows into a CSV string."""
+    return _rows_to_csv(rows, EMPLOYEE_EXPORT_COLUMNS)

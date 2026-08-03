@@ -219,3 +219,91 @@ def test_broadcast_round_optin_dms_everyone(slack_client, _db):
     _db.upsert_employee(make_employee(id="B", manager="M2", department="product"))
     app.broadcast_round_optin()
     assert slack_client.chat_postMessage.call_count == 2
+
+
+# ── Admin panel (/brewadmin) ─────────────────────────────────────────────────
+
+def test_brewadmin_posts_panel_in_admin_channel(slack_client):
+    respond = MagicMock()
+    cmd = {"channel_id": app.ADMIN_CHANNEL_ID, "user_id": "U1"}
+    app.handle_brewadmin(MagicMock(), cmd, respond, slack_client)
+    slack_client.chat_postMessage.assert_called_once()
+    assert slack_client.chat_postMessage.call_args.kwargs["channel"] == app.ADMIN_CHANNEL_ID
+    respond.assert_not_called()
+
+
+def test_brewadmin_refuses_outside_admin_channel(slack_client):
+    respond = MagicMock()
+    cmd = {"channel_id": "C_OTHER", "user_id": "U1"}
+    app.handle_brewadmin(MagicMock(), cmd, respond, slack_client)
+    respond.assert_called_once()
+    slack_client.chat_postMessage.assert_not_called()
+
+
+def test_brewadmin_guides_when_bot_not_in_channel(slack_client):
+    from slack_sdk.errors import SlackApiError
+
+    slack_client.chat_postMessage.side_effect = SlackApiError(
+        "not_in_channel", response={"ok": False, "error": "not_in_channel"}
+    )
+    respond = MagicMock()
+    cmd = {"channel_id": app.ADMIN_CHANNEL_ID, "user_id": "U1"}
+    app.handle_brewadmin(MagicMock(), cmd, respond, slack_client)
+    respond.assert_called_once()
+    assert "invite" in respond.call_args.kwargs["text"].lower()
+
+
+def test_run_matching_modal_submit_runs_cycle(slack_client, _db, monkeypatch):
+    called = {}
+    monkeypatch.setattr(app, "run_cycle_start", lambda cadence: called.setdefault("cadence", cadence))
+    view = {"state": {"values": {"block_cadence": {"input_cadence": {"selected_option": {"value": "monthly"}}}}}}
+    app.handle_run_matching_submit(MagicMock(), view, {"user": {"id": "U1"}}, slack_client)
+    assert called["cadence"] == "monthly"
+
+
+def test_export_current_uploads_csv(slack_client, _db):
+    _db.upsert_employee(make_employee(id="A", name="Alice", manager="M1", department="eng"))
+    _db.upsert_employee(make_employee(id="B", name="Bob", manager="M2", department="product"))
+    cid = _db.create_cycle("open", "2026-08-01", "2026-08-15")
+    _db.create_match("A", "B", cid, "matched", 6.7, "shared goals")
+
+    body = {"user": {"id": "U1"}, "channel": {"id": app.ADMIN_CHANNEL_ID}}
+    app.handle_admin_export_current(MagicMock(), body, slack_client)
+    slack_client.files_upload_v2.assert_called_once()
+    content = slack_client.files_upload_v2.call_args.kwargs["content"]
+    assert "Alice" in content and "partner_a" in content
+
+
+def test_export_all_uploads_csv(slack_client, _db):
+    _db.upsert_employee(make_employee(id="A", name="Alice", manager="M1", department="eng"))
+    _db.upsert_employee(make_employee(id="B", name="Bob", manager="M2", department="product"))
+    cid = _db.create_cycle("open", "2026-08-01", "2026-08-15")
+    _db.create_match("A", "B", cid)
+
+    body = {"user": {"id": "U1"}, "channel": {"id": app.ADMIN_CHANNEL_ID}}
+    app.handle_admin_export_all(MagicMock(), body, slack_client)
+    slack_client.files_upload_v2.assert_called_once()
+
+
+def test_export_current_empty_sends_notice_not_file(slack_client, _db):
+    body = {"user": {"id": "U1"}, "channel": {"id": app.ADMIN_CHANNEL_ID}}
+    app.handle_admin_export_current(MagicMock(), body, slack_client)
+    slack_client.files_upload_v2.assert_not_called()
+    slack_client.chat_postMessage.assert_called_once()  # "no cycle" notice
+
+
+def test_export_participants_uploads_csv(slack_client, _db):
+    _db.upsert_employee(make_employee(id="A", name="Alice", manager="M1", department="eng"))
+    _db.upsert_employee(make_employee(id="B", name="Bob", manager="M2", department="product"))
+    body = {"user": {"id": "U1"}, "channel": {"id": app.ADMIN_CHANNEL_ID}}
+    app.handle_admin_export_participants(MagicMock(), body, slack_client)
+    slack_client.files_upload_v2.assert_called_once()
+    content = slack_client.files_upload_v2.call_args.kwargs["content"]
+    assert "Alice" in content and "unique_matches" in content
+
+
+def test_export_participants_empty_sends_notice(slack_client, _db):
+    body = {"user": {"id": "U1"}, "channel": {"id": app.ADMIN_CHANNEL_ID}}
+    app.handle_admin_export_participants(MagicMock(), body, slack_client)
+    slack_client.files_upload_v2.assert_not_called()
+    slack_client.chat_postMessage.assert_called_once()

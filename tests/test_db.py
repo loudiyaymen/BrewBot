@@ -1,5 +1,7 @@
 """Tests for the SQLite data layer, migrations, and query helpers."""
 
+import csv
+import io
 import sqlite3
 
 from conftest import make_employee
@@ -160,5 +162,96 @@ def test_get_match_for_reward(fresh_db):
 
 
 def _seed_pair(db):
-    db.upsert_employee(make_employee(id="A", manager="M1", department="eng"))
-    db.upsert_employee(make_employee(id="B", manager="M2", department="product"))
+    db.upsert_employee(make_employee(id="A", name="Alice", manager="M1", department="eng"))
+    db.upsert_employee(make_employee(id="B", name="Bob", manager="M2", department="product"))
+
+
+# ── CSV export ───────────────────────────────────────────────────────────────
+
+def test_export_matches_current_cycle(fresh_db):
+    _seed_pair(fresh_db)
+    cid = fresh_db.create_cycle("open", "2026-08-01", "2026-08-15")
+    mid = fresh_db.create_match("A", "B", cid, "matched", 6.7, "shared goals")
+    fresh_db.update_match_status(mid, "completed")
+    fresh_db.upsert_completion(mid, confirmed_by="A", rating=5, feedback="great chat")
+
+    rows = fresh_db.export_matches(cid)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["partner_a"] == "Alice" and row["partner_b"] == "Bob"
+    assert row["took_place"] == "yes"
+    assert row["completed_date"] and row["rating_a"] == 5 and row["feedback_a"] == "great chat"
+    assert row["match_reason"] == "shared goals"
+
+
+def test_export_matches_includes_pending(fresh_db):
+    _seed_pair(fresh_db)
+    cid = fresh_db.create_cycle("open", "2026-08-01", "2026-08-15")
+    fresh_db.create_match("A", "B", cid)  # never completed
+    row = fresh_db.export_matches(cid)[0]
+    assert row["took_place"] == "no" and row["completed_date"] is None
+
+
+def test_export_matches_all_scope(fresh_db):
+    _seed_pair(fresh_db)
+    c1 = fresh_db.create_cycle("open", "2026-07-01", "2026-07-15")
+    c2 = fresh_db.create_cycle("open", "2026-08-01", "2026-08-15")
+    fresh_db.create_match("A", "B", c1)
+    fresh_db.create_match("A", "B", c2)
+    assert len(fresh_db.export_matches()) == 2
+    assert len(fresh_db.export_matches(c2)) == 1
+
+
+def test_matches_to_csv_roundtrip(fresh_db):
+    _seed_pair(fresh_db)
+    cid = fresh_db.create_cycle("open", "2026-08-01", "2026-08-15")
+    fresh_db.create_match("A", "B", cid, "matched", 6.7, "shared goals")
+    text = fresh_db.matches_to_csv(fresh_db.export_matches(cid))
+    parsed = list(csv.DictReader(io.StringIO(text)))
+    assert list(parsed[0].keys()) == fresh_db.EXPORT_COLUMNS
+    assert parsed[0]["partner_a"] == "Alice"
+
+
+def test_matches_to_csv_empty_has_header_only(fresh_db):
+    text = fresh_db.matches_to_csv([])
+    lines = text.strip().splitlines()
+    assert len(lines) == 1 and lines[0].split(",") == fresh_db.EXPORT_COLUMNS
+
+
+def test_export_matches_includes_followup(fresh_db):
+    _seed_pair(fresh_db)
+    cid = fresh_db.create_cycle("open", "2026-08-01", "2026-08-15")
+    mid = fresh_db.create_match("A", "B", cid)
+    fresh_db.update_match_status(mid, "completed")
+    fresh_db.upsert_completion(mid, confirmed_by="A", rating=4, feedback="")
+    with fresh_db.get_db() as c:
+        comp_id = c.execute("SELECT id FROM completions WHERE match_id=?", (mid,)).fetchone()["id"]
+    fresh_db.record_followup(comp_id, "A", "partial", reconnect=True)
+
+    row = fresh_db.export_matches(cid)[0]
+    assert row["followup_response_a"] == "partial"
+    assert row["want_to_reconnect_a"] == 1
+    assert row["dept_a"] == "eng" and row["employee_a_id"] == "A"
+
+
+def test_export_employees_includes_profile_and_counts(fresh_db):
+    fresh_db.upsert_employee(make_employee(
+        id="A", name="Alice", manager="M1", department="eng",
+        goals_list=["find_mentor", "networking"], connection_type="mentee",
+    ))
+    fresh_db.upsert_employee(make_employee(id="B", name="Bob", manager="M2", department="product"))
+    cid = fresh_db.create_cycle("open", "2026-08-01", "2026-08-15")
+    fresh_db.create_match("A", "B", cid)
+
+    rows = {r["id"]: r for r in fresh_db.export_employees()}
+    assert rows["A"]["goals"] == "find_mentor; networking"
+    assert rows["A"]["connection_type"] == "mentee"
+    assert rows["A"]["unique_matches"] == 1
+
+
+def test_employees_to_csv_roundtrip(fresh_db):
+    fresh_db.upsert_employee(make_employee(id="A", name="Alice", manager="M1", department="eng"))
+    text = fresh_db.employees_to_csv(fresh_db.export_employees())
+    parsed = list(csv.DictReader(io.StringIO(text)))
+    assert list(parsed[0].keys()) == fresh_db.EMPLOYEE_EXPORT_COLUMNS
+    assert parsed[0]["name"] == "Alice"

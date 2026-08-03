@@ -37,6 +37,7 @@ def opt_in_modal() -> dict:
                     "action_id": "input_mode",
                     "initial_option": {
                         "text": {"type": "plain_text", "text": "☕ Match me with someone new"},
+                        "description": {"type": "plain_text", "text": "I'll be paired based on my goals and interests"},
                         "value": "matched",
                     },
                     "options": [
@@ -692,3 +693,82 @@ def brewstatus_block(stats: dict) -> list[dict]:
             },
         }
     ]
+
+
+def admin_panel_block() -> list[dict]:
+    """Blocks for the /brewadmin control panel posted to the admin channel."""
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "🛠️ *CrowdBrew Admin Panel*\n\n"
+                    "Trigger a matching round or export program data."
+                ),
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "☕ Run matching now"},
+                    "action_id": "admin_run_matching",
+                    "style": "primary",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "📄 Export current cycle"},
+                    "action_id": "admin_export_current",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "🗂️ Export all matches"},
+                    "action_id": "admin_export_all",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "👥 Export participants"},
+                    "action_id": "admin_export_participants",
+                },
+            ],
+        },
+    ]
+
+
+def run_matching_modal() -> dict:
+    """Modal for choosing the cadence before triggering a matching run."""
+    return {
+        "type": "modal",
+        "callback_id": "run_matching_modal",
+        "title": {"type": "plain_text", "text": "Run matching"},
+        "submit": {"type": "plain_text", "text": "Run now"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Start a new CrowdBrew round. Pick which cadence this run is for.",
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "block_cadence",
+                "label": {"type": "plain_text", "text": "Cadence for this run"},
+                "element": {
+                    "type": "static_select",
+                    "action_id": "input_cadence",
+                    "initial_option": {
+                        "text": {"type": "plain_text", "text": "Biweekly"},
+                        "value": "biweekly",
+                    },
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Biweekly"}, "value": "biweekly"},
+                        {"text": {"type": "plain_text", "text": "Monthly"}, "value": "monthly"},
+                    ],
+                },
+            },
+        ],
+    }

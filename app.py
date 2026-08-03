@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_sdk.errors import SlackApiError
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -444,28 +445,158 @@ def handle_feedback_submit(ack, view, client, body):
 # ── /brewstatus — admin command ──────────────────────────────────────────────
 
 @app.command("/brewstatus")
-def handle_brewstatus(ack, command, client):
-    """Post current cycle stats ephemerally to the caller."""
+def handle_brewstatus(ack, command, respond):
+    """Reply to the caller with current cycle stats.
+
+    Uses `respond` (the command's response_url) rather than chat_postEphemeral so it
+    works even when the bot isn't a member of the channel the command was run in.
+    """
     ack()
     caller = command["user_id"]
     cycle = db.get_current_cycle()
     if not cycle:
-        client.chat_postEphemeral(
-            channel=command["channel_id"],
-            user=caller,
-            text="No active cycle.",
-        )
+        respond(response_type="ephemeral", text="No active cycle yet.")
         return
     stats = db.get_cycle_stats(cycle["id"])
     try:
-        client.chat_postEphemeral(
-            channel=command["channel_id"],
-            user=caller,
+        respond(
+            response_type="ephemeral",
             blocks=ui.brewstatus_block(stats),
             text="CrowdBrew — Current Cycle Status",
         )
     except Exception:
         log.exception("failed to post brewstatus to %s", caller)
+
+
+# ── /brewadmin — admin control panel ─────────────────────────────────────────
+
+@app.command("/brewadmin")
+def handle_brewadmin(ack, command, respond, client):
+    """Post the admin control panel (run matching + CSV export) to the admin channel."""
+    ack()
+    if command["channel_id"] != ADMIN_CHANNEL_ID:
+        respond(
+            response_type="ephemeral",
+            text="Run `/brewadmin` in the CrowdBrew admin channel.",
+        )
+        return
+    try:
+        client.chat_postMessage(
+            channel=ADMIN_CHANNEL_ID,
+            blocks=ui.admin_panel_block(),
+            text="CrowdBrew Admin Panel",
+        )
+    except SlackApiError as e:
+        if e.response.get("error") == "not_in_channel":
+            respond(
+                response_type="ephemeral",
+                text="I'm not a member of this channel yet — run `/invite @BrewBot` here, then try `/brewadmin` again.",
+            )
+        else:
+            log.exception("failed to post admin panel")
+    except Exception:
+        log.exception("failed to post admin panel")
+
+
+@app.action("admin_run_matching")
+def handle_admin_run_matching(ack, body, client):
+    """Open the cadence modal so an admin can trigger a matching run."""
+    ack()
+    try:
+        client.views_open(trigger_id=body["trigger_id"], view=ui.run_matching_modal())
+    except Exception:
+        log.exception("failed to open run-matching modal")
+
+
+@app.view("run_matching_modal")
+def handle_run_matching_submit(ack, view, body, client):
+    """Run a matching cycle with the chosen cadence and confirm to the admin."""
+    ack()
+    cadence = view["state"]["values"]["block_cadence"]["input_cadence"]["selected_option"]["value"]
+    user_id = body["user"]["id"]
+    log.info("admin %s triggered matching run (%s)", user_id, cadence)
+    run_cycle_start(cadence)
+    try:
+        client.chat_postMessage(
+            channel=user_id,
+            text=f"☕ CrowdBrew matching run started ({cadence}). Check the admin channel for results.",
+        )
+    except Exception:
+        log.exception("failed to confirm matching run to %s", user_id)
+
+
+def _export_and_upload(client, channel: str, user_id: str, cycle_id: str | None, scope: str) -> None:
+    """Build a CSV for the given scope and upload it to the channel; DM if empty."""
+    rows = db.export_matches(cycle_id)
+    if not rows:
+        try:
+            client.chat_postMessage(channel=user_id, text="Nothing to export yet — no matches recorded.")
+        except Exception:
+            log.exception("failed to send empty-export notice to %s", user_id)
+        return
+    csv_text = db.matches_to_csv(rows)
+    filename = f"crowdbrew_{scope}_{datetime.utcnow():%Y-%m-%d}.csv"
+    try:
+        client.files_upload_v2(
+            channel=channel,
+            content=csv_text,
+            filename=filename,
+            title=f"CrowdBrew export ({scope})",
+            initial_comment=f"📄 CrowdBrew data export — {scope} ({len(rows)} matches).",
+        )
+    except Exception:
+        log.exception("failed to upload %s export", scope)
+
+
+@app.action("admin_export_current")
+def handle_admin_export_current(ack, body, client):
+    """Export the current cycle's matches + feedback as a CSV."""
+    ack()
+    channel = body.get("channel", {}).get("id", ADMIN_CHANNEL_ID)
+    user_id = body["user"]["id"]
+    cycle = db.get_current_cycle()
+    if not cycle:
+        try:
+            client.chat_postMessage(channel=user_id, text="No cycle to export yet.")
+        except Exception:
+            log.exception("failed to send no-cycle notice to %s", user_id)
+        return
+    _export_and_upload(client, channel, user_id, cycle["id"], "current-cycle")
+
+
+@app.action("admin_export_all")
+def handle_admin_export_all(ack, body, client):
+    """Export all matches + feedback across every cycle as a CSV."""
+    ack()
+    channel = body.get("channel", {}).get("id", ADMIN_CHANNEL_ID)
+    _export_and_upload(client, channel, body["user"]["id"], None, "all-matches")
+
+
+@app.action("admin_export_participants")
+def handle_admin_export_participants(ack, body, client):
+    """Export one row per employee with their full profile as a CSV."""
+    ack()
+    channel = body.get("channel", {}).get("id", ADMIN_CHANNEL_ID)
+    user_id = body["user"]["id"]
+    rows = db.export_employees()
+    if not rows:
+        try:
+            client.chat_postMessage(channel=user_id, text="No participants to export yet.")
+        except Exception:
+            log.exception("failed to send empty-participants notice to %s", user_id)
+        return
+    csv_text = db.employees_to_csv(rows)
+    filename = f"crowdbrew_participants_{datetime.utcnow():%Y-%m-%d}.csv"
+    try:
+        client.files_upload_v2(
+            channel=channel,
+            content=csv_text,
+            filename=filename,
+            title="CrowdBrew participants",
+            initial_comment=f"👥 CrowdBrew participants export ({len(rows)} people).",
+        )
+    except Exception:
+        log.exception("failed to upload participants export")
 
 
 # ── Scheduler ────────────────────────────────────────────────────────────────
