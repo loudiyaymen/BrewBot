@@ -719,6 +719,11 @@ def admin_panel_block() -> list[dict]:
                 },
                 {
                     "type": "button",
+                    "text": {"type": "plain_text", "text": "🔔 Nudge pending matches"},
+                    "action_id": "admin_nudge_now",
+                },
+                {
+                    "type": "button",
                     "text": {"type": "plain_text", "text": "📄 Export current cycle"},
                     "action_id": "admin_export_current",
                 },

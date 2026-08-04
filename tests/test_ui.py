@@ -111,6 +111,7 @@ def test_admin_panel_has_action_buttons():
     action_ids = {e["action_id"] for b in blocks if b["type"] == "actions" for e in b["elements"]}
     assert action_ids == {
         "admin_run_matching",
+        "admin_nudge_now",
         "admin_export_current",
         "admin_export_all",
         "admin_export_participants",

@@ -242,9 +242,13 @@ def run_cycle_start(cycle_type: str = "biweekly") -> None:
 
 # ── Scheduled jobs ───────────────────────────────────────────────────────────
 
-def send_nudges() -> None:
-    """DM employees whose match is still pending after 48 hours."""
-    pending = db.get_pending_matches_older_than(48)
+def send_nudges(min_age_hours: int = 48) -> int:
+    """DM both people in matches still pending after `min_age_hours`; return count.
+
+    The scheduled job uses the default 48h. The admin panel passes 0 to nudge every
+    still-pending match immediately.
+    """
+    pending = db.get_pending_matches_older_than(min_age_hours)
     for match in pending:
         for sender_id, partner_name in [
             (match["employee_a_id"], match["employee_b_name"]),
@@ -261,6 +265,7 @@ def send_nudges() -> None:
         db.update_match_status(match["id"], "nudged")
     if pending:
         log.info("nudges sent: %d", len(pending))
+    return len(pending)
 
 
 def send_end_of_cycle_reminders() -> None:
@@ -546,6 +551,23 @@ def _export_and_upload(client, channel: str, user_id: str, cycle_id: str | None,
         )
     except Exception:
         log.exception("failed to upload %s export", scope)
+
+
+@app.action("admin_nudge_now")
+def handle_admin_nudge_now(ack, body, client):
+    """Nudge every still-pending match right now and report the count to the admin."""
+    ack()
+    user_id = body["user"]["id"]
+    count = send_nudges(min_age_hours=0)
+    try:
+        msg = (
+            f"🔔 Nudged {count} pending match(es)."
+            if count
+            else "No pending matches to nudge — everyone's either scheduled or done."
+        )
+        client.chat_postMessage(channel=user_id, text=msg)
+    except Exception:
+        log.exception("failed to confirm nudge to %s", user_id)
 
 
 @app.action("admin_export_current")

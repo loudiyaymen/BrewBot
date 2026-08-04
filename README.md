@@ -188,6 +188,9 @@ control panel with three buttons, so you don't need the terminal:
 - **☕ Run matching now** — opens a small dialog to pick the cadence (biweekly /
   monthly), then runs a full cycle (same as the scheduled job) and DMs you a
   confirmation.
+- **🔔 Nudge pending matches** — immediately DMs both people in every still-pending
+  match a reminder to schedule (the automatic nudge only fires after 48h; this runs it
+  on demand for all pending matches). DMs you the count.
 - **📄 Export current cycle** — CSV of the latest cycle's matches.
 - **🗂️ Export all matches** — CSV of every match across all cycles.
 - **👥 Export participants** — CSV of every opted-in employee's profile.

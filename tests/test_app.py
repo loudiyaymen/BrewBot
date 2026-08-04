@@ -307,3 +307,27 @@ def test_export_participants_empty_sends_notice(slack_client, _db):
     app.handle_admin_export_participants(MagicMock(), body, slack_client)
     slack_client.files_upload_v2.assert_not_called()
     slack_client.chat_postMessage.assert_called_once()
+
+
+# ── Manual nudge ─────────────────────────────────────────────────────────────
+
+def test_admin_nudge_now_dms_pending_pairs(slack_client, _db):
+    _db.upsert_employee(make_employee(id="A", name="Alice", manager="M1", department="eng"))
+    _db.upsert_employee(make_employee(id="B", name="Bob", manager="M2", department="product"))
+    cid = _db.create_cycle("open", "2026-08-01", "2026-08-15")
+    _db.create_match("A", "B", cid)  # status defaults to pending
+
+    body = {"user": {"id": "ADMIN"}, "channel": {"id": app.ADMIN_CHANNEL_ID}}
+    app.handle_admin_nudge_now(MagicMock(), body, slack_client)
+    # Two partners nudged + one confirmation DM to the admin.
+    assert slack_client.chat_postMessage.call_count == 3
+    with _db.get_db() as c:
+        status = c.execute("SELECT status FROM matches").fetchone()["status"]
+    assert status == "nudged"
+
+
+def test_admin_nudge_now_reports_zero_when_nothing_pending(slack_client, _db):
+    body = {"user": {"id": "ADMIN"}, "channel": {"id": app.ADMIN_CHANNEL_ID}}
+    app.handle_admin_nudge_now(MagicMock(), body, slack_client)
+    slack_client.chat_postMessage.assert_called_once()  # just the "nothing to nudge" note
+    assert "No pending" in slack_client.chat_postMessage.call_args.kwargs["text"]
